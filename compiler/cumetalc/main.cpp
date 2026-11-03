@@ -558,6 +558,7 @@ struct ExecutableDriverOptions {
     std::string cuda_arch = "sm_80";
     std::string cuda_inline_threshold;
     std::vector<std::filesystem::path> include_dirs;
+    std::vector<std::filesystem::path> system_include_dirs;
     std::vector<std::string> defines;
     std::vector<std::filesystem::path> forced_includes;
     // nvcc -Xcompiler flags, forwarded to the host Clang invocations.
@@ -598,6 +599,9 @@ int run_legacy_executable_driver(const ExecutableDriverOptions& options,
     compile_prefix += cuda_inline_flags(compiler, options.cuda_inline_threshold);
     for (const auto& dir : options.include_dirs) {
         compile_prefix += " -I " + quote_shell(dir.string());
+    }
+    for (const auto& dir : options.system_include_dirs) {
+        compile_prefix += " -isystem " + quote_shell(dir.string());
     }
     for (const auto& define : options.defines) {
         compile_prefix += " -D " + quote_shell(define);
@@ -1112,6 +1116,9 @@ int run_executable_driver(const ExecutableDriverOptions& options, const char* ar
     for (const auto& dir : options.include_dirs) {
         host_flags += " -I " + quote_shell(dir.string());
     }
+    for (const auto& dir : options.system_include_dirs) {
+        host_flags += " -isystem " + quote_shell(dir.string());
+    }
     for (const auto& define : options.defines) {
         host_flags += " -D " + quote_shell(define);
     }
@@ -1147,6 +1154,9 @@ int run_executable_driver(const ExecutableDriverOptions& options, const char* ar
     }
     for (const auto& dir : options.include_dirs) {
         device_compile += " -I " + quote_shell(dir.string());
+    }
+    for (const auto& dir : options.system_include_dirs) {
+        device_compile += " -isystem " + quote_shell(dir.string());
     }
     for (const auto& define : options.defines) {
         device_compile += " -D " + quote_shell(define);
@@ -1543,6 +1553,7 @@ int run_nvcc_compat(int argc, char** argv) {
     std::string output;
     std::vector<std::string> inputs;
     std::vector<std::string> include_dirs;
+    std::vector<std::string> system_include_dirs;
     std::vector<std::string> defines;
     std::vector<std::string> host_flags;
     cumetal::ptx::Fp64Mode fp64_mode = cumetal::ptx::Fp64Mode::kEmulate;
@@ -1557,7 +1568,19 @@ int run_nvcc_compat(int argc, char** argv) {
         else if (arg == "-I") include_dirs.push_back(next());
         else if (arg.rfind("-I", 0) == 0 && arg.size() > 2)
             include_dirs.push_back(arg.substr(2));
-        else if (arg == "-D") defines.push_back(next());
+        else if (arg == "-isystem") {
+            if (i + 1 == args.size() || args[i + 1].empty()) {
+                std::cerr << "-isystem expects a path\n";
+                return 2;
+            }
+            system_include_dirs.push_back(next());
+        } else if (arg.rfind("-isystem=", 0) == 0) {
+            if (arg.size() == 9) {
+                std::cerr << "-isystem expects a path\n";
+                return 2;
+            }
+            system_include_dirs.push_back(arg.substr(9));
+        } else if (arg == "-D") defines.push_back(next());
         else if (arg.rfind("-D", 0) == 0 && arg.size() > 2)
             defines.push_back(arg.substr(2));
         else if (arg == "-Xcompiler" || arg == "--compiler-options" ||
@@ -1659,6 +1682,7 @@ int run_nvcc_compat(int argc, char** argv) {
         driver.output = output;
         driver.object_only = true;
         driver.include_dirs.assign(include_dirs.begin(), include_dirs.end());
+        driver.system_include_dirs.assign(system_include_dirs.begin(), system_include_dirs.end());
         driver.defines = defines;
         driver.host_compiler_flags = host_flags;
         driver.fp64_mode = fp64_mode;
@@ -1671,6 +1695,7 @@ int run_nvcc_compat(int argc, char** argv) {
         driver.input = inputs.front();
         driver.output = output;
         driver.include_dirs.assign(include_dirs.begin(), include_dirs.end());
+        driver.system_include_dirs.assign(system_include_dirs.begin(), system_include_dirs.end());
         driver.defines = defines;
         driver.host_compiler_flags = host_flags;
         driver.fp64_mode = fp64_mode;
@@ -1709,6 +1734,7 @@ int main(int argc, char** argv) {
     std::filesystem::path cuda_clang;
     std::string cuda_inline_threshold;
     std::vector<std::filesystem::path> cuda_include_dirs;
+    std::vector<std::filesystem::path> cuda_system_include_dirs;
     std::vector<std::string> cuda_defines;
     std::vector<std::string> host_compiler_flags;
     std::vector<std::filesystem::path> cuda_forced_includes;
@@ -1851,6 +1877,18 @@ int main(int argc, char** argv) {
             cuda_include_dirs.emplace_back(argv[++i]);
         } else if (arg.size() > 2 && arg.substr(0, 2) == "-I") {
             cuda_include_dirs.emplace_back(arg.substr(2));
+        } else if (arg == "-isystem") {
+            if (i + 1 >= argc || std::string(argv[i + 1]).empty()) {
+                std::cerr << "-isystem expects a path\n";
+                return 2;
+            }
+            cuda_system_include_dirs.emplace_back(argv[++i]);
+        } else if (arg.rfind("-isystem=", 0) == 0) {
+            if (arg.size() == 9) {
+                std::cerr << "-isystem expects a path\n";
+                return 2;
+            }
+            cuda_system_include_dirs.emplace_back(arg.substr(9));
         } else if (arg == "--device-as-default-execution-space" || arg == "-default-device") {
             device_default_execution_space = true;
         } else if (arg.rfind("-std=", 0) == 0 || arg.rfind("--std=", 0) == 0) {
@@ -2119,6 +2157,7 @@ int main(int argc, char** argv) {
         driver.cuda_arch = cuda_arch;
         driver.cuda_inline_threshold = cuda_inline_threshold;
         driver.include_dirs = cuda_include_dirs;
+        driver.system_include_dirs = cuda_system_include_dirs;
         driver.defines = cuda_defines;
         driver.forced_includes = cuda_forced_includes;
         driver.host_compiler_flags = host_compiler_flags;
@@ -2177,6 +2216,9 @@ int main(int argc, char** argv) {
         }
         for (const auto& include_dir : cuda_include_dirs) {
             command += " -I " + quote_shell(include_dir.string());
+        }
+        for (const auto& include_dir : cuda_system_include_dirs) {
+            command += " -isystem " + quote_shell(include_dir.string());
         }
         for (const auto& define : cuda_defines) {
             command += " -D " + quote_shell(define);
@@ -2489,6 +2531,9 @@ int main(int argc, char** argv) {
             }
             for (const auto& include_dir : cuda_include_dirs) {
                 command += "-I " + quote_shell(include_dir.string()) + " ";
+            }
+            for (const auto& include_dir : cuda_system_include_dirs) {
+                command += "-isystem " + quote_shell(include_dir.string()) + " ";
             }
             for (const auto& define : cuda_defines) {
                 command += "-D " + quote_shell(define) + " ";
