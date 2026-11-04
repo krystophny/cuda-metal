@@ -7,6 +7,13 @@
 
 constexpr int kRelations = 15;
 
+__global__ void zero_sums(double* out, const double* in) {
+    int i = threadIdx.x;
+    if (i >= 4) return;
+    out[2*i] = in[2*i] + in[2*i+1];
+    out[2*i+1] = in[2*i] - in[2*i+1];
+}
+
 __global__ void relations(int* out, const double* in, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
@@ -48,7 +55,36 @@ static bool checked(cudaError_t error) {
     return false;
 }
 
+static bool check_zero_sums() {
+    double inputs[] = {0.0, 0.0, 0.0, -0.0, -0.0, 0.0, -0.0, -0.0};
+    double *in, *out;
+    if (!checked(cudaMalloc(&in, sizeof inputs)) ||
+        !checked(cudaMalloc(&out, sizeof inputs)) ||
+        !checked(cudaMemcpy(in, inputs, sizeof inputs, cudaMemcpyHostToDevice)) ||
+        !checked(cudaMemset(out, 0xa5, sizeof inputs))) return false;
+    zero_sums<<<1, 4>>>(out, in);
+    double got[8];
+    if (!checked(cudaGetLastError()) || !checked(cudaDeviceSynchronize()) ||
+        !checked(cudaMemcpy(got, out, sizeof got, cudaMemcpyDeviceToHost))) return false;
+    bool ok = true;
+    for (int i = 0; i < 4; ++i) {
+        double want[] = {inputs[2*i] + inputs[2*i+1], inputs[2*i] - inputs[2*i+1]};
+        for (int j = 0; j < 2; ++j) {
+            uint64_t actual, expected;
+            memcpy(&actual, &got[2*i+j], sizeof actual);
+            memcpy(&expected, &want[j], sizeof expected);
+            if (actual != expected) {
+                printf("FAIL: zero pair %d operation %d sign differs from host\n", i, j);
+                ok = false;
+            }
+        }
+    }
+    if (!checked(cudaFree(in)) || !checked(cudaFree(out))) return false;
+    return ok;
+}
+
 int main() {
+    if (!check_zero_sums()) return 1;
     const char* mode = getenv("CUMETAL_FP64_MODE");
     bool exact = mode && strcmp(mode, "ieee64") == 0;
     bool fast = mode && strcmp(mode, "fast48") == 0;
