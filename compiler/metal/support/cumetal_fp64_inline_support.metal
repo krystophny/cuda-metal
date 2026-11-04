@@ -307,6 +307,10 @@ inline ulong vf64_wide_sqrt(ulong a) {
     return wide_pack64(wide_sqrt(wide_unpack64(a)));
 }
 
+inline ulong vf64_wide_hypot(ulong a, ulong b) {
+    return wide_pack64(wide_hypot(wide_unpack64(a), wide_unpack64(b)));
+}
+
 inline ulong vf64_wide_fma(ulong a, ulong b, ulong c) {
     return wide_pack64(wide_fma(wide_unpack64(a), wide_unpack64(b),
                                 wide_unpack64(c)));
