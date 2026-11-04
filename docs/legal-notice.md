@@ -96,6 +96,13 @@ same license and original copyright notice retained. Its implementation uses
 VF64's existing floating-point expansion arithmetic; no NVIDIA implementation
 or SASS is incorporated.
 
+The integer reciprocal seed uses constants and a formula adapted from
+[Berkeley SoftFloat Release 3e](https://github.com/ucb-bar/berkeley-softfloat-3/tree/07ebd29db0cfb55723a79fbbffe99103ef38e305),
+copyright The Regents of the University of California, under the retained
+[BSD 3-Clause notice](../third_party/VF64-metal/docs/softfloat-license.txt).
+Binary installations include both VF64 and SoftFloat notices under
+`share/licenses/cumetal/VF64-metal`; redistributors must retain them.
+
 ---
 
 ## Contributor License Agreement
